@@ -1,6 +1,7 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
+import { Pin } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Note } from "@/lib/store";
 import { Badge } from "@/components/ui/Badge";
@@ -45,6 +46,7 @@ export function NoteCard({ note, isActive, isSelected, isSelectionMode, onSelect
             )}
             <div className="flex items-center gap-2 min-w-0 flex-1">
               <div className="font-semibold line-clamp-1">{note.title || "Untitled Note"}</div>
+              {note.isPinned && <Pin className="h-3 w-3 fill-primary text-primary shrink-0" />}
             </div>
             <div
               className={cn(

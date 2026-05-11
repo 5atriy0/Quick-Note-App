@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
-import { ArrowLeft, Trash2, Archive, Loader2, Tag as TagIcon, Check, Image as ImageIcon, Video, Code, Paperclip, Eye, Edit3, RotateCcw } from "lucide-react";
+import { ArrowLeft, Trash2, Archive, Loader2, Tag as TagIcon, Check, Pin, PinOff, Maximize2, Minimize2, Eye, Edit3, RotateCcw } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
@@ -14,21 +14,15 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/utils";
 
-interface NoteEditorProps {
-  noteId: string;
-  /** Where to navigate back to after actions like trash/archive/restore */
-  returnTo?: string;
-}
-
-export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps) {
+export function NoteEditor() {
   const router = useRouter();
-  const { getNote, updateNote, deleteNote, addNote, restoreNote, permanentlyDeleteNote } = useNotes();
+  const { getNote, updateNote, deleteNote, addNote, restoreNote, permanentlyDeleteNote, activeNoteId: noteId, setActiveNoteId } = useNotes();
   const [note, setNote] = useState<Note | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const isCommittedRef = useRef(false);
 
   const loadNote = useCallback(() => {
@@ -41,19 +35,20 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
         tags: [],
         isArchived: false,
         isTrashed: false,
+        isPinned: false,
         updatedAt: new Date().toISOString()
       });
       setIsPreviewMode(false);
-    } else {
+    } else if (noteId) {
       isCommittedRef.current = true;
       const existing = getNote(noteId);
       if (existing) {
         setNote({ ...existing });
       } else {
-        router.push(returnTo);
+        setActiveNoteId(null);
       }
     }
-  }, [noteId, getNote, router, returnTo]);
+  }, [noteId, getNote, setActiveNoteId]);
 
   useEffect(() => {
     loadNote();
@@ -69,9 +64,9 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
         if (updates.title || updates.content) {
           isCommittedRef.current = true;
           const newId = addNote({ ...note, ...updates });
-          router.replace(`/dashboard/notes/${newId}`);
+          setActiveNoteId(newId);
         }
-      } else if (noteId !== "new") {
+      } else if (noteId && noteId !== "new") {
         updateNote(noteId, updates);
       }
       setIsSaving(false);
@@ -108,54 +103,53 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
   };
 
   const handleTrash = () => {
-    if (noteId === "new") return router.push(returnTo);
+    if (noteId === "new") return setActiveNoteId(null);
+    if (!noteId) return;
     deleteNote(noteId);
-    router.push(returnTo);
+    setActiveNoteId(null);
   };
 
   const handleArchive = () => {
-    if (noteId === "new") return router.push(returnTo);
-    updateNote(noteId, { isArchived: true, isTrashed: false });
-    router.push(returnTo);
+    if (noteId === "new") return setActiveNoteId(null);
+    if (!noteId) return;
+    updateNote(noteId, { isArchived: true, isTrashed: false, isPinned: false });
+    setActiveNoteId(null);
   };
 
   const handleRestore = () => {
+    if (!noteId) return;
     restoreNote(noteId);
-    router.push(returnTo);
+    setActiveNoteId(null);
   };
 
   const handlePermanentDelete = () => {
+    if (!noteId) return;
     if (confirm("Are you sure? This note will be permanently deleted and cannot be recovered.")) {
       permanentlyDeleteNote(noteId);
-      router.push(returnTo);
+      setActiveNoteId(null);
     }
   };
 
-  const insertSnippet = (snippet: string) => {
+  const togglePin = () => {
     if (!note) return;
-    const newContent = note.content + `\n\n${snippet}\n`;
-    setNote({ ...note, content: newContent });
-    handleSave({ content: newContent });
+    const newPinned = !note.isPinned;
+    setNote({ ...note, isPinned: newPinned });
+    handleSave({ isPinned: newPinned });
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const fileType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "file";
-      const snippet = fileType === "image" 
-        ? `![${file.name}](mock_image_url)` 
-        : `[${file.name}](mock_file_url)`;
-      insertSnippet(snippet);
-    }
-  };
+
+  // Close fullscreen on unmount or activeNote changes
+  useEffect(() => {
+    if (!noteId) setIsFullscreen(false);
+  }, [noteId]);
 
   if (!note) return <div className="p-8 flex justify-center"><Loader2 className="animate-spin text-muted-foreground" /></div>;
 
   return (
-    <div className="flex h-full flex-col bg-background animate-in fade-in zoom-in-95 duration-200 relative">
+    <div className={cn("flex flex-col bg-background animate-in fade-in zoom-in-95 duration-200", isFullscreen ? "fixed inset-0 z-50 h-screen w-screen" : "h-full relative")}>
       <header className="flex items-center justify-between border-b px-4 py-3 bg-background/80 backdrop-blur-md sticky top-0 z-10">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={() => router.push(returnTo)} className="md:hidden">
+          <Button variant="ghost" size="icon" onClick={() => setActiveNoteId(null)} className="md:hidden">
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div className="text-xs text-muted-foreground flex items-center gap-1.5">
@@ -170,19 +164,35 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
           </div>
         </div>
         <div className="flex items-center gap-1">
+          {/* Action Buttons for Normal State */}
+          {!note.isTrashed && !note.isArchived && (
+            <>
+
+              <Button variant="ghost" size="icon" onClick={togglePin} title={note.isPinned ? "Unpin Note" : "Pin Note"}>
+                {note.isPinned ? <Pin className="h-4 w-4 fill-primary text-primary" /> : <PinOff className="h-4 w-4" />}
+              </Button>
+            </>
+          )}
+
+          <div className="w-px h-4 bg-border mx-1" />
+
           <Button 
             variant="outline" 
             size="sm" 
             onClick={() => setIsPreviewMode(!isPreviewMode)} 
-            className="mr-2 h-8 flex items-center gap-2"
+            className="mr-1 h-8 flex items-center gap-2"
           >
             {isPreviewMode ? <><Edit3 className="h-4 w-4" /> Edit</> : <><Eye className="h-4 w-4" /> Preview</>}
+          </Button>
+
+          <Button variant="ghost" size="icon" onClick={() => setIsFullscreen(!isFullscreen)} title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+            {isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
           </Button>
 
           {/* Trash view: show Restore + Permanent Delete */}
           {note.isTrashed && (
             <>
-              <Button variant="outline" size="sm" onClick={handleRestore} className="mr-1 h-8 gap-1">
+              <Button variant="outline" size="sm" onClick={handleRestore} className="ml-1 mr-1 h-8 gap-1">
                 <RotateCcw className="h-3.5 w-3.5" /> Restore
               </Button>
               <Button variant="danger" size="sm" onClick={handlePermanentDelete} className="h-8 gap-1">
@@ -194,7 +204,7 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
           {/* Archive view: show Restore */}
           {note.isArchived && !note.isTrashed && (
             <>
-              <Button variant="outline" size="sm" onClick={handleRestore} className="mr-1 h-8 gap-1">
+              <Button variant="outline" size="sm" onClick={handleRestore} className="ml-1 mr-1 h-8 gap-1">
                 <RotateCcw className="h-3.5 w-3.5" /> Restore
               </Button>
               <Button variant="ghost" size="icon" onClick={handleTrash} className="text-destructive hover:text-destructive hover:bg-destructive/10" title="Delete">
@@ -217,7 +227,7 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 sm:p-8 max-w-4xl mx-auto w-full pb-32">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 max-w-4xl mx-auto w-full pb-8">
         <input
           name="title"
           value={note.title}
@@ -255,7 +265,7 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
                 img: ({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
                   if (!src) return <span className="text-muted-foreground italic">[Image: {alt || "no source"}]</span>;
                   // eslint-disable-next-line @next/next/no-img-element
-                  return <img src={src} alt={alt} {...props} />;
+                  return <img src={src} alt={alt} {...props} className="max-w-full h-auto rounded-lg my-4 border shadow-sm" />;
                 },
               }}
             >
@@ -272,32 +282,6 @@ export function NoteEditor({ noteId, returnTo = "/dashboard" }: NoteEditorProps)
           />
         )}
       </div>
-
-      {/* Formatting & Upload Toolbar */}
-      {!isPreviewMode && !note.isTrashed && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-card/80 backdrop-blur-lg border shadow-lg rounded-full px-4 py-2">
-          <input 
-            type="file" 
-            className="hidden" 
-            ref={fileInputRef} 
-            onChange={handleFileUpload} 
-            accept="image/*,video/*"
-          />
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full" onClick={() => fileInputRef.current?.click()} title="Upload File">
-            <Paperclip className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-4 bg-border mx-1" />
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-primary" onClick={() => insertSnippet("![Image description](https://example.com/image.png)")} title="Insert Image">
-            <ImageIcon className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-primary" onClick={() => insertSnippet("[Video](https://example.com/video.mp4)")} title="Insert Video">
-            <Video className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-primary" onClick={() => insertSnippet("```javascript\n// Write your code here\n```")} title="Insert Code Block">
-            <Code className="h-4 w-4" />
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

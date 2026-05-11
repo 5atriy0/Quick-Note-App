@@ -3,11 +3,13 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { User, Moon, Sun, Monitor, HardDrive, LogOut, X, Check } from "lucide-react";
+import { User, Moon, Sun, Monitor, HardDrive, LogOut, X, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { motion, AnimatePresence } from "framer-motion";
+import { createClient } from "@/lib/supabase/client";
+import { db } from "@/lib/db";
 
 type ModalType = "email" | "password" | "clear_cache" | "logout" | null;
 
@@ -16,45 +18,72 @@ export default function SettingsPage() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [modal, setModal] = useState<ModalType>(null);
-  const [email, setEmail] = useState("user@example.com");
+  const [email, setEmail] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const supabase = createClient();
 
   // Prevent hydration mismatch: useTheme returns undefined on server
   useEffect(() => setMounted(true), []);
 
-  const handleSaveMock = (callback: () => void) => {
+  // Load current user email
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setEmail(user.email);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleUpdateEmail = async (newEmail: string) => {
     setIsSaving(true);
-    setSaveSuccess(false);
-    setTimeout(() => {
-      callback();
+    setError(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      if (error) throw error;
+      setEmail(newEmail);
       setIsSaving(false);
       setSaveSuccess(true);
-      setTimeout(() => {
-        setSaveSuccess(false);
-        setModal(null);
-      }, 1500);
-    }, 800);
+      setTimeout(() => { setSaveSuccess(false); setModal(null); }, 1500);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to update email.");
+      setIsSaving(false);
+    }
   };
 
-  const handleLogout = () => {
-    // Clear mock session data
-    localStorage.removeItem("quicknotes-mock");
+  const handleUpdatePassword = async (newPassword: string) => {
+    setIsSaving(true);
+    setError(null);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setIsSaving(false);
+      setSaveSuccess(true);
+      setTimeout(() => { setSaveSuccess(false); setModal(null); }, 1500);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to update password.");
+      setIsSaving(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    // Clear local Dexie cache on logout
+    await db.notes.clear();
     router.push("/login");
+    router.refresh();
   };
 
-  const handleClearCache = () => {
+  const handleClearCache = async () => {
     setIsSaving(true);
-    setSaveSuccess(false);
-    setTimeout(() => {
-      // Mock clearing cache
+    try {
+      await db.notes.clear();
       setIsSaving(false);
       setSaveSuccess(true);
-      setTimeout(() => {
-        setSaveSuccess(false);
-        setModal(null);
-      }, 1500);
-    }, 800);
+      setTimeout(() => { setSaveSuccess(false); setModal(null); }, 1500);
+    } catch {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -76,16 +105,16 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between py-2 border-b">
                 <div>
                   <div className="font-medium">Email Address</div>
-                  <div className="text-sm text-muted-foreground">{email}</div>
+                  <div className="text-sm text-muted-foreground">{email || "Loading..."}</div>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setModal("email")}>Edit</Button>
+                <Button variant="outline" size="sm" onClick={() => { setModal("email"); setError(null); }}>Edit</Button>
               </div>
               <div className="flex items-center justify-between py-2">
                 <div>
                   <div className="font-medium">Password</div>
-                  <div className="text-sm text-muted-foreground">Last changed 3 months ago</div>
+                  <div className="text-sm text-muted-foreground">Update your account password</div>
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setModal("password")}>Update</Button>
+                <Button variant="outline" size="sm" onClick={() => { setModal("password"); setError(null); }}>Update</Button>
               </div>
             </div>
           </Card>
@@ -131,13 +160,9 @@ export default function SettingsPage() {
               Storage & Sync
             </h2>
             <div className="space-y-4">
-              <div className="flex justify-between text-sm mb-2">
-                <span className="font-medium">Local Storage Usage</span>
-                <span className="text-muted-foreground">1.2 MB / 50 MB</span>
-              </div>
-              <div className="w-full bg-secondary rounded-full h-2 mb-6">
-                <div className="bg-primary h-2 rounded-full" style={{ width: '2%' }}></div>
-              </div>
+              <p className="text-sm text-muted-foreground">
+                Notes are stored locally for offline access and synced to the cloud when online.
+              </p>
               <Button variant="outline" className="w-full sm:w-auto" onClick={() => setModal("clear_cache")}>Clear Local Cache</Button>
             </div>
           </Card>
@@ -160,7 +185,7 @@ export default function SettingsPage() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-            onClick={() => setModal(null)}
+            onClick={() => !isSaving && setModal(null)}
           >
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -181,11 +206,19 @@ export default function SettingsPage() {
                 </Button>
               </div>
 
+              {/* Error inside modal */}
+              {error && (
+                <div className="mb-4 flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-3">
+                  <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+
               {saveSuccess ? (
                 <div className="flex flex-col items-center py-8 gap-3">
                   <Check className="h-12 w-12 text-green-500" />
                   <p className="text-sm font-medium">
-                    {modal === "email" ? "Email updated successfully!" : 
+                    {modal === "email" ? "Email updated successfully! Check your inbox to confirm." : 
                      modal === "password" ? "Password updated successfully!" :
                      "Cache cleared successfully!"}
                   </p>
@@ -195,7 +228,7 @@ export default function SettingsPage() {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
                   const newEmail = formData.get("newEmail") as string;
-                  handleSaveMock(() => setEmail(newEmail));
+                  handleUpdateEmail(newEmail);
                 }} className="space-y-4">
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Current Email</label>
@@ -204,10 +237,6 @@ export default function SettingsPage() {
                   <div className="space-y-2">
                     <label className="text-sm font-medium">New Email</label>
                     <Input name="newEmail" type="email" placeholder="new@example.com" required />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Current Password</label>
-                    <Input type="password" placeholder="Verify your password" required />
                   </div>
                   <div className="flex gap-3 pt-2">
                     <Button type="button" variant="outline" className="flex-1" onClick={() => setModal(null)}>Cancel</Button>
@@ -223,22 +252,18 @@ export default function SettingsPage() {
                   const newPass = formData.get("newPassword") as string;
                   const confirmPass = formData.get("confirmPassword") as string;
                   if (newPass !== confirmPass) {
-                    alert("New password and confirmation do not match.");
+                    setError("New password and confirmation do not match.");
                     return;
                   }
-                  handleSaveMock(() => {});
+                  handleUpdatePassword(newPass);
                 }} className="space-y-4">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Current Password</label>
-                    <Input type="password" placeholder="Enter current password" required />
-                  </div>
-                  <div className="space-y-2">
                     <label className="text-sm font-medium">New Password</label>
-                    <Input name="newPassword" type="password" placeholder="Enter new password" required />
+                    <Input name="newPassword" type="password" placeholder="Enter new password" required minLength={6} />
                   </div>
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Confirm New Password</label>
-                    <Input name="confirmPassword" type="password" placeholder="Confirm new password" required />
+                    <Input name="confirmPassword" type="password" placeholder="Confirm new password" required minLength={6} />
                   </div>
                   <div className="flex gap-3 pt-2">
                     <Button type="button" variant="outline" className="flex-1" onClick={() => setModal(null)}>Cancel</Button>
@@ -250,7 +275,7 @@ export default function SettingsPage() {
               ) : modal === "clear_cache" ? (
                 <div className="space-y-4">
                   <p className="text-sm text-muted-foreground">
-                    Are you sure you want to clear your local cache? This will free up storage but might cause the app to reload initial data slower the next time.
+                    Are you sure you want to clear your local cache? Your notes will be re-downloaded from the server on your next visit.
                   </p>
                   <div className="flex gap-3 pt-4">
                     <Button type="button" variant="outline" className="flex-1" onClick={() => setModal(null)}>Cancel</Button>

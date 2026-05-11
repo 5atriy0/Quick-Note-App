@@ -7,9 +7,10 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { NoteEditor } from "@/components/notes/NoteEditor";
 
 export default function TrashPage() {
-  const { trashedNotes, permanentlyDeleteNote, batchRestore, batchPermanentDelete } = useNotes();
+  const { trashedNotes, permanentlyDeleteNote, batchRestore, batchPermanentDelete, activeNoteId } = useNotes();
   const [modalAction, setModalAction] = useState<"empty" | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -29,7 +30,7 @@ export default function TrashPage() {
 
   return (
     <div className="flex h-full w-full">
-      <div className="w-full md:w-[350px] md:border-r h-full overflow-hidden bg-muted/10 flex flex-col">
+      <div className={`w-full md:w-[350px] md:border-r h-full overflow-hidden bg-muted/10 flex-col ${activeNoteId ? 'hidden md:flex' : 'flex'}`}>
         <div className="p-4 border-b bg-background flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Trash2 className="h-5 w-5 text-muted-foreground" />
@@ -54,7 +55,6 @@ export default function TrashPage() {
           <div className="flex-1 overflow-hidden">
              <NoteList 
                notes={trashedNotes}
-               basePath="/dashboard/trash/notes"
                enableBatchRestore
                enableBatchPermanentDelete
                onBatchRestore={batchRestore}
@@ -64,12 +64,16 @@ export default function TrashPage() {
         )}
       </div>
       
-      <div className="hidden md:flex flex-1 items-center justify-center bg-background/50">
-        <EmptyState 
-          title="Trash" 
-          description="Select a deleted note to view, restore, or permanently delete it."
-          icon={<Trash2 className="h-10 w-10 text-muted-foreground/50" />}
-        />
+      <div className={`flex-1 h-full overflow-hidden ${activeNoteId ? 'block' : 'hidden md:flex items-center justify-center bg-background/50'}`}>
+        {activeNoteId ? (
+          <NoteEditor />
+        ) : (
+          <EmptyState 
+            title="Trash" 
+            description="Select a deleted note to view, restore, or permanently delete it."
+            icon={<Trash2 className="h-10 w-10 text-muted-foreground/50" />}
+          />
+        )}
       </div>
 
       <AnimatePresence>

@@ -6,7 +6,7 @@ import { Search, CheckSquare, X, Trash2, RotateCcw, Archive, Check } from "lucid
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
 import { NoteCard } from "./NoteCard";
-import { Note } from "@/lib/store";
+import { Note, useNotes } from "@/lib/store";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface NoteListProps {
@@ -39,6 +39,7 @@ export function NoteList({
   onBatchPermanentDelete,
 }: NoteListProps) {
   const router = useRouter();
+  const { setActiveNoteId } = useNotes();
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -182,7 +183,13 @@ export function NoteList({
               isSelectionMode={isSelectionMode}
               isSelected={selectedIds.has(note.id)}
               onSelect={toggleSelect}
-              onClick={() => router.push(`${basePath}/${note.id}`)}
+              onClick={() => {
+                if (note.id === activeNoteId) {
+                  setActiveNoteId(null);
+                } else {
+                  setActiveNoteId(note.id);
+                }
+              }}
             />
           ))
         )}

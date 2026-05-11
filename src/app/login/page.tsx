@@ -4,45 +4,113 @@ import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { Hexagon, ArrowLeft, CheckCircle } from "lucide-react";
+import { Hexagon, ArrowLeft, CheckCircle, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Card } from "@/components/ui/Card";
+import { createClient } from "@/lib/supabase/client";
 
 type AuthView = "login" | "register" | "forgot-password";
 
 function AuthForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const supabase = createClient();
   const [view, setView] = useState<AuthView>("login");
   const [isLoading, setIsLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Read initial mode from query param
   useEffect(() => {
     const mode = searchParams.get("mode");
     if (mode === "register") setView("register");
     else if (mode === "forgot") setView("forgot-password");
+
+    // Check for OAuth error
+    const authError = searchParams.get("error");
+    if (authError === "auth_callback_error") {
+      setError("Authentication failed. Please try again.");
+    }
   }, [searchParams]);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Clear error when switching views
+  useEffect(() => {
+    setError(null);
+  }, [view]);
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
 
-    if (view === "forgot-password") {
-      // Mock password reset
-      setTimeout(() => {
-        setIsLoading(false);
+    const formData = new FormData(e.currentTarget);
+    const email = formData.get("email") as string;
+    const password = formData.get("password") as string;
+
+    try {
+      if (view === "forgot-password") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth/callback?next=/dashboard/settings`,
+        });
+        if (error) throw error;
         setResetSent(true);
-      }, 1000);
-      return;
-    }
+      } else if (view === "register") {
+        const fullName = formData.get("fullName") as string;
+        const confirmPassword = formData.get("confirmPassword") as string;
 
-    // Mock login/register
-    setTimeout(() => {
+        if (password !== confirmPassword) {
+          setError("Passwords do not match.");
+          setIsLoading(false);
+          return;
+        }
+
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: fullName },
+          },
+        });
+        if (error) throw error;
+        // Supabase may require email confirmation depending on settings
+        router.push("/dashboard");
+        router.refresh();
+      } else {
+        // Login
+        const { error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) throw error;
+        router.push("/dashboard");
+        router.refresh();
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "An unexpected error occurred.";
+      setError(message);
+    } finally {
       setIsLoading(false);
-      router.push("/dashboard");
-    }, 1000);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    setError(null);
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || window.location.origin;
+
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: `${siteUrl}/auth/callback`,
+      },
+    });
+
+    if (error) {
+      setError(error.message);
+      setIsLoading(false);
+    }
+    // If no error, browser will redirect to Google
   };
 
   const getTitle = () => {
@@ -71,6 +139,21 @@ function AuthForm() {
             <h1 className="text-2xl font-bold tracking-tight">{getTitle()}</h1>
             <p className="text-sm text-muted-foreground mt-2">{getSubtitle()}</p>
           </div>
+
+          {/* Error Banner */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 flex items-start gap-2 text-sm text-destructive bg-destructive/10 border border-destructive/20 rounded-md p-3"
+              >
+                <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <AnimatePresence mode="wait">
             {view === "forgot-password" && resetSent ? (
@@ -107,14 +190,14 @@ function AuthForm() {
                     <label className="text-sm font-medium leading-none">
                       Full Name
                     </label>
-                    <Input placeholder="John Doe" required />
+                    <Input name="fullName" placeholder="John Doe" required />
                   </div>
                 )}
                 <div className="space-y-2">
                   <label className="text-sm font-medium leading-none">
                     Email
                   </label>
-                  <Input type="email" placeholder="m@example.com" required />
+                  <Input name="email" type="email" placeholder="m@example.com" required />
                 </div>
 
                 {view !== "forgot-password" && (
@@ -133,7 +216,7 @@ function AuthForm() {
                         </button>
                       )}
                     </div>
-                    <Input type="password" required />
+                    <Input name="password" type="password" required />
                   </div>
                 )}
 
@@ -142,7 +225,7 @@ function AuthForm() {
                     <label className="text-sm font-medium leading-none">
                       Confirm Password
                     </label>
-                    <Input type="password" required />
+                    <Input name="confirmPassword" type="password" required />
                   </div>
                 )}
                 
@@ -171,13 +254,7 @@ function AuthForm() {
                       type="button" 
                       variant="outline" 
                       className="w-full"
-                      onClick={() => {
-                        setIsLoading(true);
-                        setTimeout(() => {
-                          setIsLoading(false);
-                          router.push("/dashboard");
-                        }, 1000);
-                      }}
+                      onClick={handleGoogleLogin}
                       disabled={isLoading}
                     >
                       <svg className="mr-2 h-4 w-4" aria-hidden="true" focusable="false" data-prefix="fab" data-icon="google" role="img" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 488 512">

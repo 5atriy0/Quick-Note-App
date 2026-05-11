@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { FileText, Archive, Trash2, Settings, Plus, Hexagon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "../ui/Button";
+
+import { useNotes } from "@/lib/store";
 
 const navItems = [
   { name: "Active Notes", href: "/dashboard", icon: FileText, exact: true },
@@ -14,6 +16,16 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { setActiveNoteId } = useNotes();
+  const router = useRouter();
+
+  const handleNewNote = () => {
+    // If we're not on the dashboard, go there first
+    if (pathname !== "/dashboard") {
+      router.push("/dashboard");
+    }
+    setActiveNoteId("new");
+  };
 
   return (
     <aside className="hidden md:flex h-screen w-64 flex-col border-r bg-card/50 backdrop-blur-sm px-4 py-6">
@@ -22,12 +34,10 @@ export function Sidebar() {
         <span className="font-bold text-lg tracking-tight">QuickNote</span>
       </div>
 
-      <Link href="/dashboard/notes/new" className="mb-6">
-        <Button className="w-full justify-start gap-2" size="lg">
-          <Plus className="h-4 w-4" />
-          New Note
-        </Button>
-      </Link>
+      <Button onClick={handleNewNote} className="mb-6 w-full justify-start gap-2" size="lg">
+        <Plus className="h-4 w-4" />
+        New Note
+      </Button>
 
       <nav className="flex-1 space-y-1">
         {navItems.map((item) => {
@@ -39,6 +49,7 @@ export function Sidebar() {
             <Link
               key={item.name}
               href={item.href}
+              onClick={() => setActiveNoteId(null)}
               className={cn(
                 "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
                 isActive
@@ -56,6 +67,7 @@ export function Sidebar() {
       <div className="mt-auto">
         <Link
           href="/dashboard/settings"
+          onClick={() => setActiveNoteId(null)}
           className={cn(
             "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
             pathname.startsWith("/dashboard/settings")
